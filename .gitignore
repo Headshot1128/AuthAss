@@ -1,15 +1,14 @@
 .venv/
 __pycache__/
 .pytest_cache/
-*.db
-*.db-*
+*.db-wal
+*.db-shm
 *.license-key
 .env
 .env.*
 !.env.example
 .wrangler/
 .vscode/
-data/
 build/
 tools/vcpkg/
 tools/node*
