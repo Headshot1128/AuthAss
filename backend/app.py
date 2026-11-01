@@ -18,13 +18,14 @@ DEFAULT_APPLICATION = '00000000-0000-4000-8000-000000000001'
 
 
 class Input(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='ignore')
 
 
 class Credentials(Input):
     username: str = Field(pattern=r'^[A-Za-z0-9_.-]{3,64}$')
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
     hardware_id: str | None = Field(default=None, min_length=16, max_length=256)
+    remember: bool | None = None
 
 
 class ApplicationCredentials(Credentials):
@@ -288,7 +289,15 @@ def create_app(settings=None):
                        (sid, user['id'], audience, now() + settings.session_seconds,
                         digest(body.hardware_id) if body.hardware_id else None))
             audit(db, 'login', 'allowed', user['id'])
-            return issue(db, settings, sid)
+            data = issue(db, settings, sid)
+            if audience == 'admin':
+                data['user'] = {
+                    'username': user['username'],
+                    'user_id': user['id'],
+                    'is_owner': user['username'] == settings.owner_username,
+                    'role': user['role']
+                }
+            return data
 
     @app.post('/v1/register', status_code=201)
     def register(body: Registration, request: Request):
