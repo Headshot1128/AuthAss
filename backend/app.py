@@ -236,7 +236,8 @@ def create_app(settings=None):
 
     @app.middleware('http')
     async def boundary(request, call_next):
-        if settings.require_https and request.url.scheme != 'https':
+        scheme = request.headers.get('x-forwarded-proto', request.url.scheme)
+        if settings.require_https and scheme != 'https':
             return JSONResponse({'success': False, 'error': 'https_required'}, status_code=400)
         # Buffer bounded JSON requests before parsing, including chunked bodies.
         size = 0
