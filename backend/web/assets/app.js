@@ -56,7 +56,7 @@ const messages = {
   cannot_disable_own_access:'You cannot remove website access from your own account.',
   cannot_delete_own_account:'You cannot delete the account you are signed in with.',
   owner_required:'Only the website owner can manage users and grant access.',
-  website_approval_required:'Your website access has not been approved. Ask gerry2.0 to grant permission.',
+  website_approval_required:'Your website access has not been approved. Ask an administrator to grant permission.',
   invalid_storage_file:'The file must already exist in the server’s private storage and fit within the size limit.',
   not_found:'This record no longer exists.', server_error:'The server could not complete the request. Please sign in and try again.',
   network_failure:'Could not reach the server. Check your connection and sign in again.',

@@ -14,6 +14,7 @@ class Settings:
     rate_limit: int = 30
     license_key_file: str | None = None
     owner_username: str = 'gerry2.0'
+    owner_password: str | None = None
 
     @classmethod
     def environment(cls):
@@ -21,7 +22,8 @@ class Settings:
                    storage=os.getenv('AUTH_STORAGE', 'data/private'),
                    registration=os.getenv('AUTH_REGISTRATION', 'false') == 'true',
                    license_key_file=os.getenv('AUTH_LICENSE_KEY_FILE'),
-                   owner_username=os.getenv('AUTH_OWNER_USERNAME', 'gerry2.0').lower())
+                   owner_username=os.getenv('AUTH_OWNER_USERNAME', 'gerry2.0').lower(),
+                   owner_password=os.getenv('AUTH_OWNER_PASSWORD'))
 
 
 def prepare(settings):
