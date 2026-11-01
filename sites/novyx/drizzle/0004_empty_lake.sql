@@ -1,0 +1,1 @@
+CREATE INDEX `licenses_reseller_scope` ON `licenses` (`application_id`,`reseller_id`);

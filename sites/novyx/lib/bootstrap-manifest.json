@@ -1,0 +1,8 @@
+{
+  "sdk_url": "/v1/admin/bootstrapper/sdk",
+  "template_url": "/v1/admin/bootstrapper/template",
+  "template_sha256": "1e30e0696b3ec5aa3d156e6388a8cfd302ac60f705a164e2ae4ee60c91ecfe2e",
+  "template_bytes": 5553664,
+  "max_bytes": 67108864,
+  "sdk_version": 1
+}

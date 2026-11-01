@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792689050009,
+      "tag": "0000_worthless_clea",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792860774371,
+      "tag": "0001_woozy_silver_fox",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792871697892,
+      "tag": "0002_fearless_night_nurse",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792926432312,
+      "tag": "0003_exotic_terror",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792928165163,
+      "tag": "0004_empty_lake",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793419680496,
+      "tag": "0005_classy_meltdown",
+      "breakpoints": true
+    }
+  ]
+}

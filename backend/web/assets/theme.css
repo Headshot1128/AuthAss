@@ -1,0 +1,39 @@
+:root{--green:#7048a2;--lime:#d6b6f6}.brand{letter-spacing:.6px;font-size:25px}.brand-dot{display:none}.brand img{border-radius:10px}.login-story{background:#292038}.art-center{color:#513574}.art-label{background:#362747;border-color:#655076}.orbit{border-color:#695276}.story-footer{border-color:#594265;color:#b9a5c8}.story-body>p{color:#c0afcc}.light-eyebrow{color:#cfb8e5}.mini-icon{color:#dec1f8}.login-top{display:flex;align-items:center;justify-content:flex-end;gap:12px}.theme-toggle{white-space:nowrap;font-size:10px!important;min-height:32px!important;padding:7px 10px!important}.button.primary:hover{background:#59377f}.nav-item.active{background:#f0e9f8;color:#765097}.section-symbol{background:#f0e9f8;color:#765097}.license-key{font-family:Consolas,monospace;font-size:12px;letter-spacing:.4px;user-select:all}.row-actions button[data-row-action=delete-user]{color:#aa5754}.theme-toggle:hover{border-color:#a987ca}.brand-light .brand-dot{display:none}
+.login-simple{display:flex;align-items:center;justify-content:center;min-height:100dvh;padding:85px 24px;background:var(--surface)}
+.login-simple .login-panel{width:100%;max-width:430px;min-height:0;padding:42px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 16px 60px #24163108}
+.login-simple .login-top{position:absolute;top:24px;right:28px}
+.login-simple .login-form-wrap{max-width:none;padding:0;margin:0}
+.login-simple .login-brand{justify-content:center;margin-bottom:32px;gap:12px;font-size:27px}
+.login-simple .login-brand img{width:46px;height:46px}
+.login-simple h2{text-align:center;font-size:25px;margin:0 0 9px}
+.login-simple .login-description{text-align:center;margin-bottom:30px}
+.login-simple .login-submit{justify-content:center;margin-top:26px}
+[data-theme=dark] .login-simple{background:var(--surface)}
+[data-theme=dark] .login-simple .login-panel{background:#211d29;box-shadow:0 16px 60px #0002}
+@media(max-width:700px){.login-simple{padding:76px 20px 35px}.login-simple .login-panel{padding:32px 25px}.login-simple .login-top{top:20px;right:20px}}
+:root[data-theme=dark]{color-scheme:dark;--ink:#eee8f6;--muted:#a9a0b7;--green:#9266c3;--lime:#dbb7fa;--line:#34303e;--surface:#15131b;--white:#211d2a;--danger:#f3a29f}
+[data-theme=dark] .login-screen,[data-theme=dark] .login-panel,[data-theme=dark] .topbar{background:#19161f}
+[data-theme=dark] .sidebar,[data-theme=dark] .card,[data-theme=dark] .stat-card,[data-theme=dark] dialog{background:#211d29}
+[data-theme=dark] .button,[data-theme=dark] .row-actions button,[data-theme=dark] .pagination button{background:#2b2535;color:#e0d2ee;border-color:#453a52}
+[data-theme=dark] .button.primary{background:#895abd;border-color:#986bca;color:#fff}
+[data-theme=dark] .button:hover,[data-theme=dark] .row-actions button:hover,[data-theme=dark] .icon-button:hover{background:#413151;color:#fff}
+[data-theme=dark] .button.primary:hover{background:#a374d1}
+[data-theme=dark] input,[data-theme=dark] textarea,[data-theme=dark] select,[data-theme=dark] .search-wrap input{background:#17131e;border-color:#44394f;color:#f2eaf9}
+[data-theme=dark] input:focus,[data-theme=dark] textarea:focus,[data-theme=dark] select:focus{border-color:#b486df;box-shadow:0 0 0 3px #b486df20}
+[data-theme=dark] input::placeholder{color:#8e809e}
+[data-theme=dark] .workspace-icon,[data-theme=dark] .avatar,[data-theme=dark] .stat-icon,[data-theme=dark] .event-symbol,[data-theme=dark] .section-symbol{background:#352840;border-color:#4a3859;color:#d2a8f2}
+[data-theme=dark] .nav-item{color:#b2a6c0}[data-theme=dark] .nav-item:hover{background:#2b2235}[data-theme=dark] .nav-item.active{background:#39294a;color:#e0bcfc}
+[data-theme=dark] .security-note,[data-theme=dark] .quickstart,[data-theme=dark] .modal-footer{background:#292133;border-color:#42334f}
+[data-theme=dark] th{background:#282130;color:#baacc9;border-color:var(--line)}
+[data-theme=dark] td{color:#c3b5d1;border-color:var(--line)}[data-theme=dark] td strong{color:#eee4f7}[data-theme=dark] tbody tr:hover{background:#282131}
+[data-theme=dark] .card-heading,[data-theme=dark] .activity-item,[data-theme=dark] .posture-item,[data-theme=dark] .main-footer{border-color:var(--line)}
+[data-theme=dark] .badge{background:#25382e;color:#abd5b5;border-color:#3b5143}[data-theme=dark] .badge.neutral{background:#332b3e;color:#c9b1df;border-color:#483757}[data-theme=dark] .badge.bad{background:#41282d;color:#f0aaa8;border-color:#644047}[data-theme=dark] .badge.warn{background:#3a3222;color:#e2c78e;border-color:#574a2f}
+[data-theme=dark] .code-pill,[data-theme=dark] .secret-key,[data-theme=dark] .table-toolbar h2 span{background:#33263f;color:#d7b7ee;border-color:#493657}
+[data-theme=dark] .check-icon,[data-theme=dark] .connection-pill{background:#30243c;color:#c8a1e9;border-color:#473453}
+[data-theme=dark] .form-error,[data-theme=dark] .page-error{background:#3a242d;border-color:#653b48;color:#f4b0b3}
+[data-theme=dark] .breadcrumbs strong{color:#d9c5ea}
+[data-theme=dark] .nav-label,[data-theme=dark] .environment-tag,[data-theme=dark] .login-note,[data-theme=dark] .login-bottom,[data-theme=dark] .password-label span,[data-theme=dark] .password-toggle,[data-theme=dark] .icon-button,[data-theme=dark] .stat-top,[data-theme=dark] .stat-bottom,[data-theme=dark] .page-heading p,[data-theme=dark] .card-heading p,[data-theme=dark] .activity-time,[data-theme=dark] .activity-main small,[data-theme=dark] .cell-subtitle,[data-theme=dark] .posture-item p,[data-theme=dark] .quickstart p,[data-theme=dark] .field small,[data-theme=dark] .modal-body>p,[data-theme=dark] .modal-heading p,[data-theme=dark] .table-footer,[data-theme=dark] .main-footer,[data-theme=dark] .security-note p,[data-theme=dark] .profile small,[data-theme=dark] .workspace small{color:#b1a1bf}
+[data-theme=dark] .text-button,[data-theme=dark] .quickstart .eyebrow,[data-theme=dark] .page-heading .eyebrow{color:#c09be0}
+[data-theme=dark] .toast{background:#4f3569;border-color:#9568bb;color:#f5e9ff}
+[data-theme=dark] .row-actions button[data-row-action=delete-user]{color:#f1aaa5}
+@media(max-width:700px){.login-top{display:flex}.login-top .environment-tag{display:none}.topbar-right{gap:4px}.connection-pill{display:none}.theme-toggle{font-size:9px!important;padding:6px 8px!important}.brand{font-size:23px}}

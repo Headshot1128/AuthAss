@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <script src="/assets/theme.js"></script>
+  <title>NOVYX — Authorization console</title>
+  <link rel="icon" href="/assets/novyx.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="stylesheet" href="/assets/desk.css">
+  <script src="/assets/app.js" type="module"></script>
+  <link rel="stylesheet" href="/assets/refinement.css">
+  <link rel="stylesheet" href="/assets/interface.css">
+</head>
+<body>
+  <section id="login-screen" class="login-screen login-simple" aria-label="Sign in to NOVYX">
+    <div class="login-panel">
+      <div class="login-top"><button class="theme-toggle button small" type="button" aria-label="Switch color theme">Dark mode</button></div>
+      <div class="login-form-wrap">
+        <a class="brand login-brand" href="/" aria-label="NOVYX home"><img src="/assets/novyx.svg" alt=""><span>NOVYX</span></a>
+        <span class="eyebrow login-eyebrow">NOVYX WORKSPACE</span><h2>Welcome back.</h2>
+        <p class="muted login-description">Your products. Your customers. One workspace.</p>
+        <form id="login-form" method="post" action="/v1/admin/login">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" placeholder="Enter your username" required minlength="3" maxlength="64">
+          <div class="password-label"><label for="password">Password</label><button id="forgot-password" class="forgot-password-link" type="button">Forgot password?</button></div>
+          <div class="password-wrap"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required><button id="toggle-password" class="password-toggle" type="button" aria-label="Show password">Show</button></div>
+          <p id="login-error" class="form-error" role="alert" hidden></p>
+          <label class="remember-choice" for="remember-session"><input id="remember-session" name="remember" type="checkbox"> <span>Stay signed in</span></label>
+          <button class="button primary login-submit" type="submit">Sign in</button>
+        </form>
+        <p class="login-trust"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3-8 3v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg> Your workspace. Secure by design.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="console" class="console" hidden>
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="/" aria-label="NOVYX home"><img src="/assets/novyx.svg" alt=""><span>NOVYX<span class="brand-dot">.</span></span></a>
+      <div class="workspace application-picker"><label for="application-selector">Application</label><select id="application-selector" aria-label="Selected application" disabled><option>Default application</option></select></div>
+      <span class="nav-label" id="workspace-label">CONTROL CENTER</span>
+      <nav aria-label="Main navigation">
+        <button data-view="applications" class="nav-item"><span data-icon="variables"></span>Applications</button>
+        <button data-view="overview" class="nav-item active"><span data-icon="overview"></span>Overview</button>
+        <button data-view="users" class="nav-item"><span data-icon="users"></span>Users</button>
+        <button data-view="resellers" class="nav-item"><span data-icon="users"></span>Reseller accounts<span class="nav-new">NEW</span></button>
+        <button data-view="reseller_licenses" class="nav-item" hidden><span data-icon="key"></span>License keys</button>
+        <button data-view="reseller_hwid" class="nav-item" hidden><span data-icon="shield"></span>HWID reset</button>
+        <button data-view="website_users" class="nav-item" hidden><span data-icon="shield"></span>Website accounts</button>
+        <button data-view="account" class="nav-item"><span data-icon="shield"></span>My account</button>
+        <button data-view="licenses" class="nav-item"><span data-icon="key"></span>Licenses</button>
+        <button data-view="variables" class="nav-item"><span data-icon="variables"></span>Variables</button>
+        <button data-view="files" class="nav-item"><span data-icon="files"></span>Protected files</button>
+        <button data-view="bootstrapper" class="nav-item"><span data-icon="shield"></span>Bootstrapper</button>
+        <span class="nav-label nav-label-second">MONITOR</span>
+        <button data-view="audit" class="nav-item"><span data-icon="activity"></span>Activity log</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="security-note"><span data-icon="shield"></span><strong id="sidebar-note-title">Built for your next release.</strong><p id="sidebar-note-description">Manage access, deliver updates, and keep every product in sync.</p></div><div class="profile"><span class="avatar" id="avatar">A</span><div><strong id="profile-name">Administrator</strong><small>Administrator</small></div><button id="logout" class="icon-button" aria-label="Sign out" title="Sign out"><span data-icon="logout"></span><span>Sign out</span></button></div></div>
+    </aside>
+    <div class="main-shell">
+      <header class="topbar"><div class="breadcrumbs"><button id="menu-toggle" class="icon-button mobile-only" aria-label="Toggle navigation" aria-expanded="false"><span data-icon="menu"></span></button><span id="workspace-crumb">Control center</span><span class="breadcrumb-divider">/</span><strong id="breadcrumb">Overview</strong></div><div class="topbar-right"><button class="theme-toggle button small" type="button" aria-label="Switch color theme">Dark mode</button><span class="connection-pill"><span class="status-dot"></span>Authenticated session</span><button id="refresh" class="icon-button" aria-label="Refresh data" title="Refresh data"><span data-icon="refresh"></span></button></div></header>
+      <main id="main-content" tabindex="-1">
+        <div id="workspace-context" class="workspace-context"></div>
+        <div class="page-heading"><div><span class="eyebrow" id="page-eyebrow">YOUR CONTROL CENTER</span><h1 id="page-title">Overview</h1><p id="page-description">A clear view of your application’s access and activity.</p></div><button id="page-action" class="button primary"><span data-icon="plus"></span><span id="action-label">Create user</span></button></div>
+        <div id="page-error" class="page-error" role="alert" hidden></div>
+        <div id="page-content" aria-live="polite"></div>
+        <footer class="main-footer"><span>NOVYX <span class="footer-dot">/</span> Authorization console</span><span>All times shown in your local timezone</span></footer>
+      </main>
+    </div>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="noscript">JavaScript is required to use the administration console.</p></noscript>
+</body>
+</html>
