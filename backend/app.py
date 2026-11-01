@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -12,6 +13,8 @@ from .config import Settings, prepare
 from .db import connect, migrate
 from .security import DUMMY, audit, digest, issue, now, passwords, uid, verify
 from .license_keys import cipher, generate
+
+DEFAULT_APPLICATION = '00000000-0000-4000-8000-000000000001'
 
 
 class Input(BaseModel):
@@ -77,12 +80,41 @@ class FileMetadata(Input):
     max_bytes: int = Field(gt=0, le=1024 * 1024 * 1024)
 
 
+class ApplicationCreate(Input):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ApplicationUpdate(Input):
+    name: str = Field(min_length=1, max_length=64)
+    status: Literal['active', 'disabled']
+
+
+class ResellerCreate(Input):
+    username: str = Field(pattern=r'^[A-Za-z0-9_.-]{3,64}$')
+    password: str = Field(min_length=12, max_length=128)
+    max_days: int = Field(default=30, ge=1, le=999)
+
+
+class ResellerUpdate(Input):
+    status: Literal['active', 'suspended']
+    max_days: int = Field(ge=1, le=999)
+
+
+class ResellerLicenseCreate(Input):
+    days: int = Field(ge=1, le=999)
+
+
+class ResellerHwidReset(Input):
+    username: str = Field(pattern=r'^[A-Za-z0-9_.-]{3,64}$')
+
+
 def deny(code, status=401):
     raise HTTPException(status, code)
 
 
 def website_allowed(user, settings):
-    return user['role'] == 'admin' and (user['username'] in (settings.owner_username, 'slights1', 'admin') or user['web_approved'])
+    return (user['role'] == 'admin' and (user['username'] in (settings.owner_username, 'slights1', 'admin') or user['web_approved'])) or \
+           (user['role'] == 'reseller' and user['web_approved'])
 
 
 def owner_authenticated(db, request):
@@ -106,6 +138,17 @@ def throttle(db, bucket, limit, seconds=60):
         db.execute('INSERT OR REPLACE INTO rate_limits VALUES(?,?,1)', (bucket, t))
 
 
+# Reseller-allowed admin paths.
+RESELLER_ALLOWED_PATHS = {
+    ('GET', '/v1/admin/session'),
+    ('POST', '/v1/admin/logout'),
+    ('GET', '/v1/admin/applications'),
+    ('GET', '/v1/admin/reseller/licenses'),
+    ('POST', '/v1/admin/reseller/licenses'),
+    ('POST', '/v1/admin/reseller/reset-hwid'),
+}
+
+
 def authenticated(db, request, audience='client', count_request=True):
     header = request.headers.get('authorization', '')
     if not header.startswith('Bearer ') or len(header) > 512:
@@ -122,10 +165,15 @@ def authenticated(db, request, audience='client', count_request=True):
         deny('expired')
     if row['password_until'] is not None and row['password_until'] <= now():
         deny('expired')
-    if row['audience'] != audience or (audience == 'admin' and row['role'] != 'admin'):
+    if row['audience'] != audience or (audience == 'admin' and row['role'] not in ('admin', 'reseller')):
         deny('permission_denied', 403)
     if audience == 'admin' and not website_allowed(row, request.app.state.settings):
         deny('website_approval_required', 401)
+    if audience == 'admin' and row['role'] == 'reseller':
+        method = request.method
+        path = request.url.path
+        if (method, path) not in RESELLER_ALLOWED_PATHS:
+            deny('permission_denied', 403)
     if audience == 'client' and (row['console_only'] or row['role'] == 'admin'):
         deny('permission_denied', 403)
     if row['hardware_hash'] and digest(request.headers.get('x-hardware-id', '')) != row['hardware_hash']:
@@ -147,6 +195,11 @@ def entitled(db, user, permission):
                           (user['id'], permission, now(), user['hardware_hash'])).fetchone()
     if not allowed and not licensed:
         deny('permission_denied', 403)
+
+
+def get_application_id(request):
+    """Extract and return the application_id from query params, defaulting to DEFAULT_APPLICATION."""
+    return request.query_params.get('application_id', DEFAULT_APPLICATION)
 
 
 def create_app(settings=None):
@@ -218,7 +271,7 @@ def create_app(settings=None):
             valid = verify(user['password_hash'] if user else DUMMY, body.password)
             if (not valid or not user or user['status'] != 'active'
                 or (user['password_until'] is not None and user['password_until'] <= now())
-                or (audience == 'admin' and user['role'] != 'admin')):
+                or (audience == 'admin' and user['role'] not in ('admin', 'reseller'))):
                 audit(db, 'login', 'denied')
                 deny('invalid_credentials')
             if audience == 'client' and (user['console_only'] or user['role'] == 'admin'):
@@ -410,74 +463,50 @@ def create_app(settings=None):
         return StreamingResponse(stream(), media_type='application/octet-stream',
                                  headers={'Content-Length': str(length), 'Content-Disposition': 'attachment'})
 
-    @app.get('/v1/admin/users')
-    def list_users(request: Request, offset: int = 0):
-        with connect(settings) as db:
-            admin = owner_authenticated(db, request)
-            rows = db.execute('SELECT id,username,status,role,console_only,web_approved,subscription_until,password_until FROM users ORDER BY id LIMIT 100 OFFSET ?',
-                              (max(0, offset),)).fetchall()
-            audit(db, 'admin.users.list', 'allowed', admin['id'])
-            return {'success': True, 'users': [{**dict(r), 'is_owner': r['username'] == settings.owner_username} for r in rows]}
+    # ── Admin: Session ────────────────────────────────────────────────
 
     @app.get('/v1/admin/session')
     def admin_session(request: Request):
         with connect(settings) as db:
             user = authenticated(db, request, 'admin')
-            return {'success': True, 'username': user['username'], 'user_id': user['id'], 'is_owner': user['username'] == settings.owner_username}
+            return {'success': True, 'username': user['username'], 'user_id': user['id'],
+                    'is_owner': user['username'] == settings.owner_username, 'role': user['role']}
+
+    # ── Admin: Overview ───────────────────────────────────────────────
 
     @app.get('/v1/admin/overview')
     def overview(request: Request):
         with connect(settings) as db:
             admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
             counts = {
-                'users': db.execute('SELECT COUNT(*) FROM users').fetchone()[0],
-                'subscribers': db.execute("SELECT COUNT(*) FROM users WHERE status='active' AND subscription_until>?", (now(),)).fetchone()[0],
-                'licenses': db.execute('SELECT COUNT(*) FROM licenses WHERE revoked=0 AND expires_at>?', (now(),)).fetchone()[0],
-                'files': db.execute('SELECT COUNT(*) FROM files WHERE enabled=1').fetchone()[0],
+                'users': db.execute("SELECT COUNT(*) FROM users WHERE application_id=? AND console_only=0 AND role='user'", (app_id,)).fetchone()[0],
+                'subscribers': db.execute("SELECT COUNT(*) FROM users WHERE application_id=? AND status='active' AND subscription_until>?", (app_id, now())).fetchone()[0],
+                'licenses': db.execute('SELECT COUNT(*) FROM licenses WHERE application_id=? AND revoked=0 AND expires_at>?', (app_id, now())).fetchone()[0],
+                'files': db.execute('SELECT COUNT(*) FROM files WHERE application_id=? AND enabled=1', (app_id,)).fetchone()[0],
             }
-            recent = db.execute('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 8').fetchall()
+            recent = db.execute('SELECT * FROM audit_logs WHERE application_id=? ORDER BY id DESC LIMIT 8', (app_id,)).fetchall()
             audit(db, 'admin.overview.read', 'allowed', admin['id'])
             return {'success': True, 'counts': counts, 'recent': [dict(r) for r in recent]}
 
-    @app.get('/v1/admin/licenses')
-    def list_licenses(request: Request, offset: int = 0):
-        with connect(settings) as db:
-            admin = authenticated(db, request, 'admin')
-            rows = db.execute('''SELECT l.id,l.expires_at,l.permission,l.hardware_bound,l.user_id,l.revoked,l.frozen_at,l.key_ciphertext,
-                u.username FROM licenses l LEFT JOIN users u ON l.user_id=u.id
-                ORDER BY l.id LIMIT 100 OFFSET ?''', (max(0, offset),)).fetchall()
-            audit(db, 'admin.licenses.list', 'allowed', admin['id'])
-            licenses = []
-            for row in rows:
-                item = dict(row)
-                encrypted = item.pop('key_ciphertext')
-                item['key'] = cipher(settings).decrypt(encrypted.encode()).decode() if encrypted else None
-                licenses.append(item)
-            return {'success': True, 'licenses': licenses}
+    # ── Admin: Users ──────────────────────────────────────────────────
 
-    @app.get('/v1/admin/variables')
-    def list_variables(request: Request, offset: int = 0):
+    @app.get('/v1/admin/users')
+    def list_users(request: Request, offset: int = 0, scope: str = 'application'):
         with connect(settings) as db:
-            admin = authenticated(db, request, 'admin')
-            rows = db.execute('SELECT * FROM variables ORDER BY name,id LIMIT 100 OFFSET ?', (max(0, offset),)).fetchall()
-            audit(db, 'admin.variables.list', 'allowed', admin['id'])
-            return {'success': True, 'variables': [dict(r) for r in rows]}
-
-    @app.get('/v1/admin/files')
-    def list_files(request: Request, offset: int = 0):
-        with connect(settings) as db:
-            admin = authenticated(db, request, 'admin')
-            rows = db.execute('SELECT * FROM files ORDER BY id LIMIT 100 OFFSET ?', (max(0, offset),)).fetchall()
-            audit(db, 'admin.files.list', 'allowed', admin['id'])
-            return {'success': True, 'files': [dict(r) for r in rows]}
-
-    @app.get('/v1/admin/users/{user_id}/permissions')
-    def list_permissions(user_id: str, request: Request):
-        with connect(settings) as db:
-            admin = owner_authenticated(db, request)
-            rows = db.execute('SELECT permission FROM permissions WHERE user_id=? ORDER BY permission', (user_id,)).fetchall()
-            audit(db, 'admin.permissions.list', 'allowed', admin['id'], user_id)
-            return {'success': True, 'permissions': [r['permission'] for r in rows]}
+            app_id = get_application_id(request)
+            if scope == 'website':
+                admin = owner_authenticated(db, request)
+                rows = db.execute("SELECT id,username,status,role,console_only,web_approved,subscription_until,password_until FROM users WHERE console_only=1 OR role='admin' ORDER BY id LIMIT 100 OFFSET ?",
+                                  (max(0, offset),)).fetchall()
+                audit(db, 'admin.website_users.list', 'allowed', admin['id'])
+                return {'success': True, 'users': [{**dict(r), 'is_owner': r['username'] == settings.owner_username} for r in rows]}
+            else:
+                admin = authenticated(db, request, 'admin')
+                rows = db.execute("SELECT id,username,status,role,console_only,web_approved,subscription_until,password_until FROM users WHERE application_id=? AND console_only=0 AND role='user' ORDER BY username,id LIMIT 100 OFFSET ?",
+                                  (app_id, max(0, offset))).fetchall()
+                audit(db, 'admin.users.list', 'allowed', admin['id'])
+                return {'success': True, 'users': [{**dict(r), 'is_owner': r['username'] == settings.owner_username} for r in rows]}
 
     @app.post('/v1/admin/users', status_code=201)
     def create_user(body: Credentials, request: Request):
@@ -486,8 +515,8 @@ def create_app(settings=None):
             if db.execute('SELECT 1 FROM users WHERE username=?', (body.username.lower(),)).fetchone():
                 deny('user_exists', 409)
             identifier = uid()
-            db.execute("INSERT INTO users(id,username,password_hash,role,console_only,created_at) VALUES(?,?,?,'admin',1,?)",
-                       (identifier, body.username.lower(), passwords.hash(body.password), now()))
+            db.execute("INSERT INTO users(id,username,password_hash,role,console_only,created_at,application_id) VALUES(?,?,?,'admin',1,?,?)",
+                       (identifier, body.username.lower(), passwords.hash(body.password), now(), DEFAULT_APPLICATION))
             audit(db, 'admin.user.create', 'allowed', admin['id'], identifier)
             return {'success': True, 'id': identifier}
 
@@ -541,6 +570,14 @@ def create_app(settings=None):
             audit(db, 'admin.sessions.revoke', 'allowed', admin['id'], user_id)
             return {'success': True}
 
+    @app.get('/v1/admin/users/{user_id}/permissions')
+    def list_permissions(user_id: str, request: Request):
+        with connect(settings) as db:
+            admin = owner_authenticated(db, request)
+            rows = db.execute('SELECT permission FROM permissions WHERE user_id=? ORDER BY permission', (user_id,)).fetchall()
+            audit(db, 'admin.permissions.list', 'allowed', admin['id'], user_id)
+            return {'success': True, 'permissions': [r['permission'] for r in rows]}
+
     @app.put('/v1/admin/users/{user_id}/permissions')
     def permission(user_id: str, body: Permission, request: Request):
         with connect(settings) as db:
@@ -554,17 +591,37 @@ def create_app(settings=None):
             audit(db, 'admin.permission.update', 'allowed', admin['id'], user_id)
             return {'success': True}
 
+    # ── Admin: Licenses ───────────────────────────────────────────────
+
+    @app.get('/v1/admin/licenses')
+    def list_licenses(request: Request, offset: int = 0):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
+            rows = db.execute('''SELECT l.id,l.expires_at,l.permission,l.hardware_bound,l.user_id,l.revoked,l.frozen_at,l.key_ciphertext,
+                u.username FROM licenses l LEFT JOIN users u ON l.user_id=u.id
+                WHERE l.application_id=? ORDER BY l.id LIMIT 100 OFFSET ?''', (app_id, max(0, offset))).fetchall()
+            audit(db, 'admin.licenses.list', 'allowed', admin['id'])
+            licenses = []
+            for row in rows:
+                item = dict(row)
+                encrypted = item.pop('key_ciphertext')
+                item['key'] = cipher(settings).decrypt(encrypted.encode()).decode() if encrypted else None
+                licenses.append(item)
+            return {'success': True, 'licenses': licenses}
+
     @app.post('/v1/admin/licenses', status_code=201)
     def create_license(body: LicenseCreate, request: Request):
         with connect(settings) as db:
             admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
             identifier, key = uid(), generate()
             while db.execute('SELECT 1 FROM licenses WHERE key_hash=?', (digest(key),)).fetchone():
                 key = generate()
             has_encrypted_keys = db.execute('SELECT 1 FROM licenses WHERE key_ciphertext IS NOT NULL LIMIT 1').fetchone()
             encrypted = cipher(settings, create=not has_encrypted_keys).encrypt(key.encode()).decode()
-            db.execute('INSERT INTO licenses(id,key_hash,expires_at,permission,hardware_bound,key_ciphertext) VALUES(?,?,?,?,?,?)',
-                       (identifier, digest(key), now() + body.days * 86400, body.permission, body.hardware_bound, encrypted))
+            db.execute('INSERT INTO licenses(id,key_hash,expires_at,permission,hardware_bound,key_ciphertext,application_id) VALUES(?,?,?,?,?,?,?)',
+                       (identifier, digest(key), now() + body.days * 86400, body.permission, body.hardware_bound, encrypted, app_id))
             audit(db, 'admin.license.create', 'allowed', admin['id'], identifier)
             return {'success': True, 'id': identifier, 'key': key}
 
@@ -636,37 +693,32 @@ def create_app(settings=None):
             audit(db, 'admin.license.revoke', 'allowed', admin['id'], license_id)
             return {'success': True}
 
+    # ── Admin: Variables ──────────────────────────────────────────────
+
+    @app.get('/v1/admin/variables')
+    def list_variables(request: Request, offset: int = 0):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
+            rows = db.execute('SELECT * FROM variables WHERE application_id=? ORDER BY name,id LIMIT 100 OFFSET ?', (app_id, max(0, offset))).fetchall()
+            audit(db, 'admin.variables.list', 'allowed', admin['id'])
+            return {'success': True, 'variables': [dict(r) for r in rows]}
+
     @app.put('/v1/admin/variables/{variable_id}')
     def set_variable(variable_id: str, body: Variable, request: Request):
         with connect(settings) as db:
             admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
             if body.user_id and not db.execute('SELECT 1 FROM users WHERE id=?', (body.user_id,)).fetchone():
                 deny('not_found', 404)
             collision = db.execute('SELECT id FROM variables WHERE name=? AND user_id IS ? AND id<>?',
                                    (body.name, body.user_id, variable_id)).fetchone()
             if collision:
                 deny('variable_exists', 409)
-            db.execute('''INSERT INTO variables VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+            db.execute('''INSERT INTO variables(id,name,user_id,value,permission,application_id) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,user_id=excluded.user_id,value=excluded.value,permission=excluded.permission''',
-                       (variable_id, body.name, body.user_id, body.value, body.permission))
+                       (variable_id, body.name, body.user_id, body.value, body.permission, app_id))
             audit(db, 'admin.variable.update', 'allowed', admin['id'], variable_id)
-            return {'success': True}
-
-    @app.put('/v1/admin/files/{file_id}')
-    def set_file(file_id: str, body: FileMetadata, request: Request):
-        with connect(settings) as db:
-            admin = authenticated(db, request, 'admin')
-            root = Path(settings.storage).resolve()
-            path = (root / body.storage_name).resolve()
-            if path.parent != root or not path.is_file() or path.stat().st_size > body.max_bytes:
-                deny('invalid_storage_file', 422)
-            if db.execute('SELECT 1 FROM files WHERE storage_name=? AND id<>?', (body.storage_name, file_id)).fetchone():
-                deny('file_exists', 409)
-            db.execute('''INSERT INTO files VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                storage_name=excluded.storage_name,permission=excluded.permission,
-                enabled=excluded.enabled,max_bytes=excluded.max_bytes''',
-                       (file_id, body.storage_name, body.permission, body.enabled, body.max_bytes))
-            audit(db, 'admin.file.update', 'allowed', admin['id'], file_id)
             return {'success': True}
 
     @app.delete('/v1/admin/variables/{variable_id}')
@@ -677,16 +729,237 @@ def create_app(settings=None):
             audit(db, 'admin.variable.delete', 'allowed', admin['id'], variable_id)
             return {'success': True}
 
+    # ── Admin: Files ──────────────────────────────────────────────────
+
+    @app.get('/v1/admin/files')
+    def list_files(request: Request, offset: int = 0):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
+            rows = db.execute('SELECT * FROM files WHERE application_id=? ORDER BY id LIMIT 100 OFFSET ?', (app_id, max(0, offset))).fetchall()
+            audit(db, 'admin.files.list', 'allowed', admin['id'])
+            return {'success': True, 'files': [dict(r) for r in rows]}
+
+    @app.put('/v1/admin/files/{file_id}')
+    def set_file(file_id: str, body: FileMetadata, request: Request):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
+            root = Path(settings.storage).resolve()
+            path = (root / body.storage_name).resolve()
+            if path.parent != root or not path.is_file() or path.stat().st_size > body.max_bytes:
+                deny('invalid_storage_file', 422)
+            if db.execute('SELECT 1 FROM files WHERE storage_name=? AND id<>?', (body.storage_name, file_id)).fetchone():
+                deny('file_exists', 409)
+            db.execute('''INSERT INTO files(id,storage_name,permission,enabled,max_bytes,application_id) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                storage_name=excluded.storage_name,permission=excluded.permission,
+                enabled=excluded.enabled,max_bytes=excluded.max_bytes''',
+                       (file_id, body.storage_name, body.permission, body.enabled, body.max_bytes, app_id))
+            audit(db, 'admin.file.update', 'allowed', admin['id'], file_id)
+            return {'success': True}
+
+    # ── Admin: Audit ──────────────────────────────────────────────────
+
     @app.get('/v1/admin/audit')
     def logs(request: Request, after: int = 0, recent: bool = False, offset: int = 0):
         with connect(settings) as db:
             admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
             if recent:
-                rows = db.execute('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100 OFFSET ?', (max(0, offset),)).fetchall()
+                rows = db.execute('SELECT * FROM audit_logs WHERE application_id=? ORDER BY id DESC LIMIT 100 OFFSET ?', (app_id, max(0, offset))).fetchall()
             else:
-                rows = db.execute('SELECT * FROM audit_logs WHERE id>? ORDER BY id LIMIT 100', (after,)).fetchall()
+                rows = db.execute('SELECT * FROM audit_logs WHERE application_id=? AND id>? ORDER BY id LIMIT 100', (app_id, after)).fetchall()
             audit(db, 'admin.audit.read', 'allowed', admin['id'])
             return {'success': True, 'events': [dict(r) for r in rows]}
+
+    # ── Admin: Applications ───────────────────────────────────────────
+
+    @app.get('/v1/admin/applications')
+    def list_applications(request: Request):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            if admin['role'] == 'reseller':
+                app_id = admin['application_id'] if admin['application_id'] else DEFAULT_APPLICATION
+                rows = db.execute('SELECT * FROM applications WHERE id=?', (app_id,)).fetchall()
+                return {'success': True, 'applications': [dict(r) for r in rows], 'default_application_id': app_id}
+            rows = db.execute('SELECT * FROM applications ORDER BY created_at,id').fetchall()
+            return {'success': True, 'applications': [dict(r) for r in rows], 'default_application_id': DEFAULT_APPLICATION}
+
+    @app.post('/v1/admin/applications', status_code=201)
+    def create_application(body: ApplicationCreate, request: Request):
+        with connect(settings) as db:
+            admin = owner_authenticated(db, request)
+            app_id = uid()
+            db.execute("INSERT INTO applications(id,name,status,created_at) VALUES(?,?,'active',?)",
+                       (app_id, body.name.strip(), now()))
+            audit(db, 'admin.application.create', 'allowed', admin['id'], app_id)
+            return {'success': True, 'id': app_id, 'name': body.name.strip(), 'status': 'active'}
+
+    @app.put('/v1/admin/applications/{application_id}')
+    def update_application(application_id: str, body: ApplicationUpdate, request: Request):
+        with connect(settings) as db:
+            admin = owner_authenticated(db, request)
+            if not db.execute('SELECT 1 FROM applications WHERE id=?', (application_id,)).fetchone():
+                deny('not_found', 404)
+            db.execute('UPDATE applications SET name=?,status=? WHERE id=?',
+                       (body.name.strip(), body.status, application_id))
+            if body.status == 'disabled':
+                db.execute("UPDATE sessions SET revoked=1 WHERE audience='client' AND user_id IN (SELECT id FROM users WHERE application_id=? AND console_only=0 AND role='user')",
+                           (application_id,))
+            audit(db, 'admin.application.update', 'allowed', admin['id'], application_id)
+            return {'success': True}
+
+    # ── Admin: Resellers ──────────────────────────────────────────────
+
+    @app.get('/v1/admin/resellers')
+    def list_resellers(request: Request, offset: int = 0):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            app_id = get_application_id(request)
+            rows = db.execute("SELECT u.id,u.username,u.status,u.created_at,r.max_days FROM users u JOIN reseller_profiles r ON r.user_id=u.id WHERE u.application_id=? AND u.role='reseller' ORDER BY u.username LIMIT 100 OFFSET ?",
+                              (app_id, max(0, offset))).fetchall()
+            return {'success': True, 'resellers': [dict(r) for r in rows]}
+
+    @app.post('/v1/admin/resellers', status_code=201)
+    def create_reseller(body: ResellerCreate, request: Request):
+        with connect(settings) as db:
+            admin = owner_authenticated(db, request)
+            app_id = get_application_id(request)
+            username = body.username.lower()
+            if username == settings.owner_username or db.execute('SELECT 1 FROM users WHERE username=? AND console_only=1', (username,)).fetchone():
+                deny('user_exists', 409)
+            identifier = uid()
+            db.execute("INSERT INTO users(id,username,password_hash,role,console_only,web_approved,created_at,application_id) VALUES(?,?,?,'reseller',1,1,?,?)",
+                       (identifier, username, passwords.hash(body.password), now(), app_id))
+            db.execute('INSERT INTO reseller_profiles(user_id,max_days) VALUES(?,?)',
+                       (identifier, body.max_days))
+            audit(db, 'admin.reseller.create', 'allowed', admin['id'], identifier)
+            return {'success': True, 'id': identifier, 'username': username}
+
+    @app.put('/v1/admin/resellers/{reseller_id}')
+    def update_reseller(reseller_id: str, body: ResellerUpdate, request: Request):
+        with connect(settings) as db:
+            admin = owner_authenticated(db, request)
+            app_id = get_application_id(request)
+            if not db.execute("SELECT 1 FROM users WHERE id=? AND application_id=? AND role='reseller'", (reseller_id, app_id)).fetchone():
+                deny('not_found', 404)
+            db.execute('UPDATE users SET status=? WHERE id=?', (body.status, reseller_id))
+            db.execute('UPDATE reseller_profiles SET max_days=? WHERE user_id=?', (body.max_days, reseller_id))
+            db.execute('UPDATE sessions SET revoked=1 WHERE user_id=?', (reseller_id,))
+            audit(db, 'admin.reseller.update', 'allowed', admin['id'], reseller_id)
+            return {'success': True}
+
+    # ── Reseller: Own Endpoints ───────────────────────────────────────
+
+    @app.get('/v1/admin/reseller/licenses')
+    def reseller_list_licenses(request: Request, offset: int = 0):
+        with connect(settings) as db:
+            user = authenticated(db, request, 'admin')
+            if user['role'] != 'reseller':
+                deny('permission_denied', 403)
+            app_id = user['application_id'] if user['application_id'] else DEFAULT_APPLICATION
+            profile = db.execute('SELECT max_days FROM reseller_profiles WHERE user_id=?', (user['id'],)).fetchone()
+            if not profile:
+                deny('permission_denied', 403)
+            rows = db.execute('''SELECT l.id,l.expires_at,l.hardware_bound,l.revoked,l.key_ciphertext,c.username
+                FROM licenses l LEFT JOIN users c ON c.id=l.user_id
+                WHERE l.application_id=? AND l.reseller_id=? ORDER BY l.id DESC LIMIT 100 OFFSET ?''',
+                              (app_id, user['id'], max(0, offset))).fetchall()
+            licenses = []
+            for row in rows:
+                item = dict(row)
+                encrypted = item.pop('key_ciphertext')
+                item['key'] = cipher(settings).decrypt(encrypted.encode()).decode() if encrypted else None
+                licenses.append(item)
+            return {'success': True, 'reseller_licenses': licenses, 'max_days': profile['max_days']}
+
+    @app.post('/v1/admin/reseller/licenses', status_code=201)
+    def reseller_create_license(body: ResellerLicenseCreate, request: Request):
+        with connect(settings) as db:
+            user = authenticated(db, request, 'admin')
+            if user['role'] != 'reseller':
+                deny('permission_denied', 403)
+            app_id = user['application_id'] if user['application_id'] else DEFAULT_APPLICATION
+            profile = db.execute('SELECT max_days FROM reseller_profiles WHERE user_id=?', (user['id'],)).fetchone()
+            if not profile:
+                deny('permission_denied', 403)
+            if body.days > profile['max_days']:
+                deny('invalid_request', 422)
+            identifier, key = uid(), generate()
+            while db.execute('SELECT 1 FROM licenses WHERE key_hash=?', (digest(key),)).fetchone():
+                key = generate()
+            expires_at = now() + body.days * 86400
+            has_encrypted_keys = db.execute('SELECT 1 FROM licenses WHERE key_ciphertext IS NOT NULL LIMIT 1').fetchone()
+            encrypted = cipher(settings, create=not has_encrypted_keys).encrypt(key.encode()).decode()
+            db.execute("INSERT INTO licenses(id,key_hash,expires_at,permission,hardware_bound,key_ciphertext,application_id,reseller_id) VALUES(?,?,?,'premium',1,?,?,?)",
+                       (identifier, digest(key), expires_at, encrypted, app_id, user['id']))
+            audit(db, 'reseller.license.create', 'allowed', user['id'], identifier)
+            return {'success': True, 'id': identifier, 'key': key,
+                    'license': {'id': identifier, 'key': key, 'expires_at': expires_at, 'hardware_bound': 1, 'revoked': 0, 'username': None}}
+
+    @app.post('/v1/admin/reseller/reset-hwid')
+    def reseller_reset_hwid(body: ResellerHwidReset, request: Request):
+        with connect(settings) as db:
+            user = authenticated(db, request, 'admin')
+            if user['role'] != 'reseller':
+                deny('permission_denied', 403)
+            app_id = user['application_id'] if user['application_id'] else DEFAULT_APPLICATION
+            profile = db.execute('SELECT max_days FROM reseller_profiles WHERE user_id=?', (user['id'],)).fetchone()
+            if not profile:
+                deny('permission_denied', 403)
+            customer = db.execute("SELECT id,username FROM users WHERE application_id=? AND username=? AND console_only=0 AND role='user'",
+                                  (app_id, body.username.lower())).fetchone()
+            if not customer:
+                deny('not_found', 404)
+            db.execute('UPDATE users SET hardware_hash=NULL WHERE id=?', (customer['id'],))
+            db.execute('UPDATE licenses SET hardware_hash=NULL WHERE user_id=? AND application_id=?', (customer['id'], app_id))
+            db.execute('UPDATE sessions SET revoked=1 WHERE user_id=?', (customer['id'],))
+            audit(db, 'reseller.user.hwid_reset', 'allowed', user['id'], customer['id'])
+            return {'success': True, 'username': customer['username'],
+                    'message': 'HWID reset. The next successful login binds the new Windows account SID.'}
+
+    # ── Admin: Bootstrapper ──────────────────────────────────────────
+
+    @app.get('/v1/admin/bootstrapper')
+    def bootstrapper_manifest(request: Request):
+        with connect(settings) as db:
+            authenticated(db, request, 'admin')
+            manifest = {
+                'sdk_url': '/v1/admin/bootstrapper/sdk',
+                'template_url': '/v1/admin/bootstrapper/template',
+                'template_sha256': '1e30e0696b3ec5aa3d156e6388a8cfd302ac60f705a164e2ae4ee60c91ecfe2e',
+                'template_bytes': 5553664,
+                'max_bytes': 67108864,
+                'sdk_version': 1,
+            }
+            return {'success': True, **manifest}
+
+    @app.get('/v1/admin/bootstrapper/template')
+    def bootstrapper_template(request: Request):
+        with connect(settings) as db:
+            authenticated(db, request, 'admin')
+            template_path = Path(__file__).parent / 'web' / 'bootstrap' / 'novyx-template.bin'
+            if not template_path.is_file():
+                deny('server_error', 503)
+            return Response(content=template_path.read_bytes(), media_type='application/vnd.novyx.asset')
+
+    @app.get('/v1/admin/bootstrapper/sdk')
+    def bootstrapper_sdk(request: Request):
+        with connect(settings) as db:
+            authenticated(db, request, 'admin')
+            sdk_path = Path(__file__).parent / 'web' / 'bootstrap' / 'novyx-bootstrap-sdk.zip'
+            if not sdk_path.is_file():
+                deny('server_error', 503)
+            return Response(content=sdk_path.read_bytes(), media_type='application/vnd.novyx.asset')
+
+    @app.post('/v1/admin/bootstrapper')
+    def bootstrapper_validate(request: Request):
+        with connect(settings) as db:
+            admin = authenticated(db, request, 'admin')
+            audit(db, 'admin.bootstrapper.package', 'allowed', admin['id'])
+            return {'success': True}
+
+    # ── Static Web ────────────────────────────────────────────────────
 
     web = Path(__file__).parent / 'web'
     app.mount('/assets', StaticFiles(directory=web / 'assets'), name='web-assets')

@@ -171,6 +171,7 @@ dialog::backdrop { background: #080e2090; backdrop-filter: blur(8px); animation:
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
 /* Orbit edition: presentation only; application markup and behavior are preserved. */
 :root {
   --ink: #172e33; --muted: #60777c; --line: #d7e4e3;

@@ -20,6 +20,7 @@ class Settings:
     def environment(cls):
         return cls(database=os.getenv('AUTH_DATABASE', 'data/auth.db'),
                    storage=os.getenv('AUTH_STORAGE', 'data/private'),
+                   require_https=os.getenv('AUTH_REQUIRE_HTTPS', 'true') == 'true',
                    registration=os.getenv('AUTH_REGISTRATION', 'false') == 'true',
                    license_key_file=os.getenv('AUTH_LICENSE_KEY_FILE'),
                    owner_username=os.getenv('AUTH_OWNER_USERNAME', 'gerry2.0').lower(),

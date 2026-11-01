@@ -8,6 +8,12 @@
 .login-simple h2{text-align:center;font-size:25px;margin:0 0 9px}
 .login-simple .login-description{text-align:center;margin-bottom:30px}
 .login-simple .login-submit{justify-content:center;margin-top:26px}
+.login-simple .password-label{align-items:center;gap:12px;margin-bottom:9px}
+.login-simple .password-label label{margin-bottom:0}
+.forgot-password-link{background:none;border:0;padding:4px 0;color:var(--ink);font-size:11px;line-height:1.4;white-space:nowrap}
+.forgot-password-link:hover{text-decoration:underline;text-underline-offset:3px}
+.remember-choice{display:flex;align-items:center;gap:9px;margin:18px 0 0;font-size:12px;font-weight:400;cursor:pointer}
+.remember-choice input{width:16px;min-height:16px;height:16px;margin:0;padding:0;accent-color:#8e5bbc;flex-shrink:0}
 [data-theme=dark] .login-simple{background:var(--surface)}
 [data-theme=dark] .login-simple .login-panel{background:#211d29;box-shadow:0 16px 60px #0002}
 @media(max-width:700px){.login-simple{padding:76px 20px 35px}.login-simple .login-panel{padding:32px 25px}.login-simple .login-top{top:20px;right:20px}}
